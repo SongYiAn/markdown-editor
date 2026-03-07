@@ -145,33 +145,46 @@ public class DocumentService {
     }
 
     @Transactional
-    // 应用一次操作（基于版本号校验）
+    // 应用一次操作（支持 OT 变换：客户端版本落后时自动变换而非拒绝）
     public OperationResult applyOperation(Long documentId, Long userId, OperationRequest request) {
         DocumentMember member = requireMember(documentId, userId);
         if (member.getRole() == DocumentRole.VIEWER) {
             throw new ApiException(HttpStatus.FORBIDDEN, "read only");
         }
         Document document = member.getDocument();
-        if (request.getBaseVersion() != document.getVersion()) {
+        long serverVersion = document.getVersion();
+        if (request.getBaseVersion() > serverVersion) {
             throw new ApiException(HttpStatus.CONFLICT, "version conflict");
+        }
+        // OT 变换：若客户端版本落后，将操作逐一对每条并发操作做变换
+        OperationRequest effectiveOp = request;
+        if (request.getBaseVersion() < serverVersion) {
+            List<DocumentOp> concurrentOps = documentOpRepository
+                    .findAllByDocumentIdAndAppliedVersionGreaterThanOrderByAppliedVersionAsc(
+                            documentId, request.getBaseVersion());
+            for (DocumentOp concurrent : concurrentOps) {
+                effectiveOp = OperationalTransformer.transform(effectiveOp, concurrent);
+            }
         }
         String content = document.getContent();
         String newContent;
-        if (request.getType() == DocumentOp.OperationType.INSERT) {
-            String text = request.getText() == null ? "" : request.getText();
-            if (request.getPosition() < 0 || request.getPosition() > content.length()) {
+        if (effectiveOp.getType() == DocumentOp.OperationType.INSERT) {
+            String text = effectiveOp.getText() == null ? "" : effectiveOp.getText();
+            int pos = effectiveOp.getPosition();
+            if (pos < 0 || pos > content.length()) {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "invalid position");
             }
-            newContent = content.substring(0, request.getPosition()) + text + content.substring(request.getPosition());
+            newContent = content.substring(0, pos) + text + content.substring(pos);
         } else {
-            if (request.getPosition() < 0 || request.getPosition() + request.getLength() > content.length()) {
+            int pos = effectiveOp.getPosition();
+            int len = effectiveOp.getLength();
+            if (pos < 0 || pos + len > content.length()) {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "invalid range");
             }
-            newContent = content.substring(0, request.getPosition())
-                    + content.substring(request.getPosition() + request.getLength());
+            newContent = content.substring(0, pos) + content.substring(pos + len);
         }
         document.setContent(newContent);
-        document.setVersion(document.getVersion() + 1);
+        document.setVersion(serverVersion + 1);
         document.setUpdatedAt(Instant.now());
         documentRepository.save(document);
         DocumentOp op = new DocumentOp();
@@ -179,15 +192,15 @@ public class DocumentService {
         op.setDocument(document);
         op.setBaseVersion(request.getBaseVersion());
         op.setAppliedVersion(document.getVersion());
-        op.setType(request.getType());
-        op.setPosition(request.getPosition());
-        op.setLength(request.getLength());
-        op.setText(request.getText());
+        op.setType(effectiveOp.getType());
+        op.setPosition(effectiveOp.getPosition());
+        op.setLength(effectiveOp.getLength());
+        op.setText(effectiveOp.getText());
         documentOpRepository.save(op);
         // 每次操作成功后自动创建编辑记录
         createVersionSnapshot(document, member.getUser(), null, true);
-        return new OperationResult(document.getVersion(), request.getType(), request.getPosition(), request.getLength(),
-                request.getText(), newContent, userId);
+        return new OperationResult(document.getVersion(), effectiveOp.getType(), effectiveOp.getPosition(),
+                effectiveOp.getLength(), effectiveOp.getText(), newContent, userId);
     }
 
     @Transactional
