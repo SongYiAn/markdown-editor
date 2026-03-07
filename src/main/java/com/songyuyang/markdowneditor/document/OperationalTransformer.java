@@ -49,7 +49,8 @@ public class OperationalTransformer {
 
     // INSERT vs DELETE：
     //   若删除区间完全在 op 之前 → op 左移删除长度
-    //   若 op 插入位置落在删除区间内 → op 移至删除起点（采用"删除优先"语义，插入文本随删除丢失）
+    //   若 op 插入位置落在删除区间内 → op 移至删除起点
+    //     （采用"删除优先"语义，插入操作跟随删除区间起点，内容仍会被插入）
     //   否则无变化
     private static OperationRequest transformInsert(OperationRequest op, DocumentOp applied, int appliedTextLen) {
         int pos = op.getPosition();
@@ -75,8 +76,9 @@ public class OperationalTransformer {
     }
 
     // DELETE vs INSERT：
-    //   若插入位置 <= 删除起点 → 删除区间整体右移
-    //   若插入位置在删除区间内部 → 不扩展长度（"删除优先"，新插入文本被保留，删除止于新文本前）
+    //   若插入位置 <= 删除起点 → 删除区间整体右移（插入使整体向后移动）
+    //   若插入位置在删除区间内部 → 删除长度保持不变（"删除优先"语义，
+    //     已应用的并发插入保留在原位，当前删除只删原始范围内的字符）
     //   若插入在删除区间之后 → 无变化
     private static OperationRequest transformDelete(OperationRequest op, DocumentOp applied, int appliedTextLen) {
         int pos = op.getPosition();

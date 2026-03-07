@@ -90,8 +90,8 @@ class DocumentServiceTests {
     @Test
     // OT 变换：两个并发 INSERT 操作应正确合并
     void otTransformConcurrentInserts() {
-        Long userA = (Long) registerUser("ota")[0];
-        Long userB = (Long) registerUser("otb")[0];
+        Object[] userAInfo = registerUser("ota");
+        Long userA = (Long) userAInfo[0];
 
         DocumentCreateRequest createRequest = new DocumentCreateRequest();
         createRequest.setTitle("OT Doc");
@@ -99,7 +99,7 @@ class DocumentServiceTests {
         Long documentId = documentService.createDocument(userA, createRequest).getId();
 
         // 将 userB 加入文档
-        Object[] userBInfo = registerUser("otbmember");
+        Object[] userBInfo = registerUser("otb");
         Long userBId = (Long) userBInfo[0];
         String userBName = (String) userBInfo[1];
         AddMemberRequest addMember = new AddMemberRequest();
@@ -131,16 +131,15 @@ class DocumentServiceTests {
     @Test
     // OT 变换：并发 DELETE 操作（删除范围无重叠）
     void otTransformConcurrentDeletes() {
-        Long userA = (Long) registerUser("del_a")[0];
-        Long userB = (Long) registerUser("del_b")[0];
-        String userBName = (String) registerUser("del_bm")[1];
+        Object[] userAInfo = registerUser("del_a");
+        Long userA = (Long) userAInfo[0];
 
         DocumentCreateRequest createRequest = new DocumentCreateRequest();
         createRequest.setTitle("Delete OT Doc");
         createRequest.setContent("Hello World");
         Long documentId = documentService.createDocument(userA, createRequest).getId();
 
-        Object[] bInfo = registerUser("del_buser");
+        Object[] bInfo = registerUser("del_b");
         Long bId = (Long) bInfo[0];
         String bName = (String) bInfo[1];
         AddMemberRequest addMember = new AddMemberRequest();
